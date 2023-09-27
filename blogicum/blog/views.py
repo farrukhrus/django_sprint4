@@ -1,16 +1,15 @@
 # from datetime import timezone
 from django.utils import timezone
 from django.shortcuts import redirect, get_object_or_404
-from django.http import Http404
-from django.db.models import Count, Q
+from django.db.models import Count
 from django.urls import reverse, reverse_lazy
 from blog.models import Post, Category, Comment
-from django.contrib.auth.models import User
 from .forms import CommentForm, PostForm
 from django.views.generic import (
     DetailView, CreateView, ListView, UpdateView, DeleteView
 )
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.models import User
 
 
 MAX_POSTS = 10
@@ -32,27 +31,26 @@ class PostFormMixin:
         return super().dispatch(request, *args, **kwargs)
 
 
-class QuerySet:
+class PostQuerySet:
     def get_queryset(self):
         return Post.objects.select_related(
-            'author', 'location', 'category').all()
+            'author', 'location', 'category').filter(
+            is_published=True,
+            category__is_published=True,
+            pub_date__lte=timezone.now()
+        ).order_by('-pub_date').all()
 
 
-class PostListView(QuerySet, ListView):
+class PostListView(PostQuerySet, ListView):
     paginate_by = MAX_POSTS
     template_name = 'blog/index.html'
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.filter(
-            Q(is_published=True)
-            & Q(category__is_published=True)
-            & Q(pub_date__lte=timezone.now())
-        ).annotate(comment_count=Count('comments')
-                   ).order_by('-pub_date')
+        return queryset.annotate(comment_count=Count('comments'))
 
 
-class PostDetailView(QuerySet, DetailView):
+class PostDetailView(PostQuerySet, DetailView):
     model = Post
     template_name = 'blog/detail.html'
     pk_url_kwarg = 'post_id'
@@ -65,13 +63,15 @@ class PostDetailView(QuerySet, DetailView):
         )
 
     def get_object(self, queryset=None):
-        post = super().get_object(queryset=queryset)
-        if ((self.request.user != post.author)
-            and ((not post.category.is_published)
-                 or (not post.is_published)
-                 or (post.pub_date > timezone.now()))):
-            raise Http404('Пост не доступен')
-        return post
+        posts = Post.objects
+        return get_object_or_404(
+            posts.filter(author=self.request.user)
+            or posts.filter(is_published=True)
+
+            if self.request.user and self.request.user.is_authenticated
+            else super().get_queryset(),
+            pk=self.kwargs["post_id"]
+        )
 
 
 class PostCreateView(LoginRequiredMixin, CreateView):
@@ -117,7 +117,7 @@ class ProfileUpdateView(LoginRequiredMixin, UpdateView):
         )
 
 
-class ProfileListView(QuerySet, ListView):
+class ProfileListView(PostQuerySet, ListView):
     paginate_by = MAX_POSTS
     template_name = 'blog/profile.html'
     model = Post
@@ -126,7 +126,7 @@ class ProfileListView(QuerySet, ListView):
         return get_object_or_404(User, username=self.kwargs['username'])
 
     def get_queryset(self):
-        query_set = super().get_queryset()
+        query_set = Post.objects
         self.profile = get_object_or_404(User,
                                          username=self.kwargs['username'])
 
@@ -134,11 +134,9 @@ class ProfileListView(QuerySet, ListView):
             author=self.profile
         ).annotate(comment_count=Count('comments')).order_by('-pub_date')
         if self.request.user != self.profile:
-            query_set = query_set.filter(
-                Q(is_published=True)
-                & Q(pub_date__lte=timezone.now())
-                & Q(category__is_published=True)
-            )
+            query_set = super().get_queryset().annotate(
+                comment_count=Count('comments'))
+
         return query_set
 
     def get_context_data(self, **kwargs):
@@ -154,13 +152,13 @@ class CommentMixin(LoginRequiredMixin):
     pk_url_kwarg = 'comment_id'
 
     def get_success_url(self):
-        return reverse('blog:post_detail', args=[self.kwargs['comment_id']])
+        return reverse('blog:post_detail', args=[self.kwargs['post_id']])
 
     def dispatch(self, request, *args, **kwargs):
         coment = get_object_or_404(Comment, id=self.kwargs['comment_id'])
         if coment.author != self.request.user:
             return redirect('blog:post_detail',
-                            post_id=self.kwargs['comment_id']
+                            post_id=self.kwargs['post_id']
                             )
         return super().dispatch(request, *args, **kwargs)
 
@@ -190,7 +188,7 @@ class CommentDeleteView(CommentMixin, DeleteView):
     pass
 
 
-class PostCategoryView(QuerySet, ListView):
+class PostCategoryView(PostQuerySet, ListView):
     template_name = 'blog/category.html'
     context_object_name = 'post_list'
     paginate_by = MAX_POSTS
@@ -204,11 +202,8 @@ class PostCategoryView(QuerySet, ListView):
             is_published=True
         )
         return super().get_queryset().filter(
-            Q(category__slug=category_slug)
-            & Q(is_published=True)
-            & Q(category__is_published=True)
-            & Q(pub_date__lte=timezone.now())
-        ).order_by('-pub_date')
+            category__slug=category_slug
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

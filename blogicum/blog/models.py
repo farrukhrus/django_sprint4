@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
-class CommonInfoModel(models.Model):
+class BaseModel(models.Model):
     is_published = models.BooleanField(
         default=True, verbose_name='Опубликовано'
     )
@@ -16,7 +16,7 @@ class CommonInfoModel(models.Model):
         abstract = True
 
 
-class Post(CommonInfoModel):
+class Post(BaseModel):
     title = models.CharField('Заголовок', max_length=256)
     text = models.TextField('Текст')
     pub_date = models.DateTimeField(
@@ -52,9 +52,10 @@ class Post(CommonInfoModel):
     class Meta:
         verbose_name = 'публикация'
         verbose_name_plural = 'Публикации'
+        ordering = ['-pub_date', ]
 
 
-class Category(CommonInfoModel):
+class Category(BaseModel):
     title = models.CharField('Заголовок', max_length=256)
     description = models.TextField('Описание')
     slug = models.SlugField(
@@ -71,18 +72,18 @@ class Category(CommonInfoModel):
         verbose_name_plural = 'Категории'
 
 
-class Location(CommonInfoModel):
+class Location(BaseModel):
     name = models.CharField('Название места', max_length=256)
-
-    def __str__(self):
-        return self.name
 
     class Meta:
         verbose_name = 'местоположение'
         verbose_name_plural = 'Местоположения'
 
+    def __str__(self):
+        return self.name
 
-class Comment(CommonInfoModel):
+
+class Comment(BaseModel):
     text = models.TextField('Текст')
     author = models.ForeignKey(
         User, on_delete=models.CASCADE,
