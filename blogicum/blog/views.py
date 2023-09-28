@@ -1,16 +1,17 @@
 # from datetime import timezone
 from django.utils import timezone
 from django.shortcuts import redirect, get_object_or_404
+from django.db.models import Q
 from django.db.models import Count
 from django.urls import reverse, reverse_lazy
-from blog.models import Post, Category, Comment
-from .forms import CommentForm, PostForm
 from django.views.generic import (
     DetailView, CreateView, ListView, UpdateView, DeleteView
 )
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.models import User
 
+from .forms import CommentForm, PostForm
+from .models import Post, Category, Comment
 
 MAX_POSTS = 10
 
@@ -32,6 +33,8 @@ class PostFormMixin:
 
 
 class PostQuerySet:
+    pk_url_kwarg = 'post_id'
+
     def get_queryset(self):
         return Post.objects.select_related(
             'author', 'location', 'category').filter(
@@ -50,7 +53,7 @@ class PostListView(PostQuerySet, ListView):
         return queryset.annotate(comment_count=Count('comments'))
 
 
-class PostDetailView(PostQuerySet, DetailView):
+class PostDetailView(LoginRequiredMixin, PostQuerySet, DetailView):
     model = Post
     template_name = 'blog/detail.html'
     pk_url_kwarg = 'post_id'
@@ -63,15 +66,14 @@ class PostDetailView(PostQuerySet, DetailView):
         )
 
     def get_object(self, queryset=None):
-        posts = Post.objects
-        return get_object_or_404(
-            posts.filter(author=self.request.user)
-            or posts.filter(is_published=True)
-
-            if self.request.user and self.request.user.is_authenticated
-            else super().get_queryset(),
-            pk=self.kwargs["post_id"]
-        )
+        post = Post.objects
+        if (self.request.user.is_authenticated):
+            post = Post.objects.all(
+            ).filter(Q(is_published=True,
+                       category__is_published=True,
+                       pub_date__lt=timezone.now()) | Q(
+                           author=self.request.user))
+            return get_object_or_404(post, pk=self.kwargs['post_id'])
 
 
 class PostCreateView(LoginRequiredMixin, CreateView):
@@ -126,18 +128,20 @@ class ProfileListView(PostQuerySet, ListView):
         return get_object_or_404(User, username=self.kwargs['username'])
 
     def get_queryset(self):
-        query_set = Post.objects
+        queryset = Post.objects
         self.profile = get_object_or_404(User,
                                          username=self.kwargs['username'])
 
-        query_set = query_set.filter(
+        queryset = queryset.filter(
             author=self.profile
+            # не работает сортировка если задать ordering на уровне модели.
+            # помоги:)
         ).annotate(comment_count=Count('comments')).order_by('-pub_date')
         if self.request.user != self.profile:
-            query_set = super().get_queryset().annotate(
+            queryset = super().get_queryset().annotate(
                 comment_count=Count('comments'))
 
-        return query_set
+        return queryset
 
     def get_context_data(self, **kwargs):
         return dict(

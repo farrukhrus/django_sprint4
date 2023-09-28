@@ -50,9 +50,9 @@ class Post(BaseModel):
     image = models.ImageField('Фото', upload_to='post_images', blank=True)
 
     class Meta:
+        # ordering = ['-pub_date']
         verbose_name = 'публикация'
         verbose_name_plural = 'Публикации'
-        ordering = ['-pub_date', ]
 
 
 class Category(BaseModel):
