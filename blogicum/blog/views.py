@@ -1,7 +1,5 @@
-# from datetime import timezone
 from django.utils import timezone
 from django.shortcuts import redirect, get_object_or_404
-from django.db.models import Q
 from django.db.models import Count
 from django.urls import reverse, reverse_lazy
 from django.views.generic import (
@@ -66,14 +64,15 @@ class PostDetailView(LoginRequiredMixin, PostQuerySet, DetailView):
         )
 
     def get_object(self, queryset=None):
-        post = Post.objects
-        if (self.request.user.is_authenticated):
-            post = Post.objects.all(
-            ).filter(Q(is_published=True,
-                       category__is_published=True,
-                       pub_date__lt=timezone.now()) | Q(
-                           author=self.request.user))
-            return get_object_or_404(post, pk=self.kwargs['post_id'])
+        post = get_object_or_404(Post.objects, pk=self.kwargs['post_id'])
+        if (self.request.user == post.author):
+            return post
+        else:
+            return get_object_or_404(
+                Post.objects.filter(
+                    is_published=True,
+                    category__is_published=True,
+                    pub_date__lt=timezone.now()), pk=self.kwargs['post_id'])
 
 
 class PostCreateView(LoginRequiredMixin, CreateView):
@@ -134,8 +133,6 @@ class ProfileListView(PostQuerySet, ListView):
 
         queryset = queryset.filter(
             author=self.profile
-            # не работает сортировка если задать ordering на уровне модели.
-            # помоги:)
         ).annotate(comment_count=Count('comments')).order_by('-pub_date')
         if self.request.user != self.profile:
             queryset = super().get_queryset().annotate(
