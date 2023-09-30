@@ -64,15 +64,12 @@ class PostDetailView(LoginRequiredMixin, PostQuerySet, DetailView):
         )
 
     def get_object(self, queryset=None):
-        post = get_object_or_404(Post.objects, pk=self.kwargs['post_id'])
-        if (self.request.user == post.author):
+        post = get_object_or_404(Post, pk=self.kwargs['post_id'])
+        if self.request.user == post.author:
             return post
-        else:
-            return get_object_or_404(
-                Post.objects.filter(
-                    is_published=True,
-                    category__is_published=True,
-                    pub_date__lt=timezone.now()), pk=self.kwargs['post_id'])
+        return get_object_or_404(
+            Post, is_published=True, category__is_published=True,
+            pub_date__lt=timezone.now(), pk=self.kwargs['post_id'])
 
 
 class PostCreateView(LoginRequiredMixin, CreateView):
